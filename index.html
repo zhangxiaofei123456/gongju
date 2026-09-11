@@ -1,0 +1,1270 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>考勤核对系统 v2026-09-07-stats2</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:"Microsoft YaHei","PingFang SC",sans-serif; background:#f4f6f9; color:#222; }
+  header { background:#2c3e50; color:#fff; padding:12px 20px; display:flex; align-items:center; justify-content:space-between; }
+  header h1 { font-size:18px; margin:0; }
+  .wrap { max-width:1560px; margin:18px auto; padding:0 16px; }
+  .card { background:#fff; border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,.08); padding:18px; margin-bottom:18px; }
+  .card h2 { font-size:16px; margin:0 0 14px; border-left:4px solid #3498db; padding-left:8px; }
+  label { display:block; font-size:13px; color:#555; margin:8px 0 4px; }
+  input,select,textarea,button { font-family:inherit; font-size:14px; }
+  input[type=text],input[type=password],select,textarea { width:100%; padding:8px; border:1px solid #ccc; border-radius:5px; }
+  button { cursor:pointer; border:none; border-radius:5px; padding:8px 14px; background:#3498db; color:#fff; }
+  button:hover { background:#2980b9; }
+  button.sec { background:#95a5a6; }
+  button.sec:hover { background:#7f8c8d; }
+  button.green { background:#27ae60; }
+  button.green:hover { background:#219150; }
+  button.red { background:#e74c3c; }
+  button.red:hover { background:#c0392b; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; }
+  .row > div { flex:1; min-width:200px; }
+  .msg { font-size:13px; margin-top:8px; }
+  .ok { color:#27ae60; } .err { color:#e74c3c; }
+  /* 考勤网格：固定列宽 + 横向滚动
+     关键修复：表头 thead 整体 position:sticky（不要让 th 单独 sticky）
+     否则带 rowspan 的 td 会被拉成滚动容器高度 */
+  table { border-collapse:collapse; font-size:12px; width:auto; min-width:100%; table-layout:fixed; }
+  th,td { border:1px solid #e0e0e0; padding:0 2px; text-align:center;
+          white-space:nowrap; height:30px; line-height:30px; vertical-align:middle;
+          box-sizing:border-box; overflow:hidden; }
+  thead th { background:#ecf0f1; }
+  thead { position:sticky; top:0; z-index:3; }
+  .grid-scroll { overflow:auto; max-height:620px; border:1px solid #dfdfdf; border-radius:6px; background:#fff; }
+  th.c-name, td.c-name { width:96px;  min-width:96px; background:#fff; }
+  th.c-per,  td.c-per  { width:48px;  min-width:48px; background:#fafbfc; }
+  th.c-day,  td.c-day  { width:34px;  min-width:34px; }
+  th.c-st,   td.c-st   { width:80px;  min-width:80px; }
+  th.c-op,   td.c-op   { width:96px;  min-width:96px; }
+  th.we { background:#f6e3c5; }
+  td.we { background:#fdf6e8; }
+  .wk { display:block; font-size:9px; line-height:10px; color:#888; font-weight:normal; }
+  td.c-empty { color:#ccc; }
+  /* 每名员工的 pm 行（tr 的偶数行）底部加 2px 分隔线，视觉上"上午+下午"是一个块 */
+  tbody tr:nth-of-type(even) td { border-bottom:2px solid #b0bec5; }
+  td.c-day { font-size:13px; }
+  .sym { display:inline-block; min-width:14px; }
+
+  /* === 格子级三色状态（主管 / 管理员 共用） === */
+  .cell-y { background:#fff3cd !important; color:#856404; }   /* 待核对（黄） */
+  .cell-g { background:#d4edda !important; color:#155724; }   /* 已确认（绿） */
+  .cell-r { background:#f8d7da !important; color:#721c24; font-weight:600; }   /* 有问题+凭证（红） */
+  /* 日历模式下的格子颜色 */
+  td.c-day.cell-y { background:#fff3cd !important; }
+  td.c-day.cell-g { background:#d4edda !important; }
+  td.c-day.cell-r { background:#f8d7da !important; color:#721c24; font-weight:600; }
+  /* 工具栏加颜色图例 */
+  .color-legend { display:flex; gap:14px; align-items:center; font-size:12px; padding:4px 8px; background:#f8f9fb; border-radius:5px; margin:6px 0; }
+  .color-legend .lg { display:inline-flex; gap:5px; align-items:center; }
+  .color-legend .sw { width:16px; height:16px; border-radius:3px; display:inline-block; border:1px solid #ddd; }
+  .color-legend .lg-y .sw { background:#fff3cd; }
+  .color-legend .lg-g .sw { background:#d4edda; }
+  .color-legend .lg-r .sw { background:#f8d7da; }
+  .color-legend .lg-pending .sw { background:#fce8b2; border-color:#e0a800; }
+
+  /* 修改申请记录（在主管详情对话框内） */
+  .cr-row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding:6px 8px;
+            border-bottom:1px dashed #e0e0e0; font-size:13px; }
+  .cr-row:last-child { border-bottom:none; }
+  .cr-row.cr-pending  { background:#fff8e1; border-left:3px solid #f1c40f; padding-left:6px; }
+  .cr-row.cr-approved { background:#e8f5e9; border-left:3px solid #27ae60; padding-left:6px; }
+  .cr-row.cr-rejected { background:#fdecea; border-left:3px solid #e74c3c; padding-left:6px; }
+  .cr-row code { background:#fff; padding:1px 4px; border-radius:3px; border:1px solid #ddd; }
+
+  .toolbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:8px 0; font-size:13px; }
+  .toolbar input[type=text] { width:160px; padding:5px 8px; }
+  .toolbar select { width:auto; min-width:220px; padding:5px 8px; }
+  .badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:12px; color:#fff; }
+  .b-none { background:#95a5a6; }
+  .b-yellow { background:#f1c40f; color:#000; }
+  .b-green { background:#27ae60; }
+  .b-red { background:#e74c3c; }
+  .ev-thumb { max-width:80px; max-height:80px; border:1px solid #ddd; border-radius:4px; cursor:pointer; }
+  .hidden { display:none; }
+  .modal-bg { position:fixed; inset:0; background:rgba(0,0,0,.5); display:flex; align-items:center; justify-content:center; z-index:99; }
+  .modal-bg.hidden { display:none; }
+  .modal { background:#fff; border-radius:8px; width:94%; max-width:1280px; max-height:90vh; overflow:auto; padding:18px; }
+  .modal h3 { margin-top:0; }
+  .legend-box { background:#f8f9fb; border:1px dashed #ccc; border-radius:6px; padding:8px; font-size:12px; color:#555; }
+  .legend-box span { margin-right:10px; }
+  .dept-item { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:6px 8px; border-bottom:1px solid #eee; font-size:13px; }
+  .dept-item .name { flex:1; }
+  .pill { font-size:11px; padding:1px 6px; border-radius:8px; background:#eee; color:#666; }
+  .small { font-size:12px; color:#777; }
+  #loginBox { max-width:360px; margin:80px auto; }
+  .topbar-right { display:flex; gap:10px; align-items:center; font-size:13px; }
+  .logout { background:#e74c3c; }
+  .cell-edit { background:#fffbe6; }
+  .tabbar { display:flex; gap:6px; margin-bottom:12px; }
+  .tabbar button { background:#ecf0f1; color:#333; }
+  .tabbar button.active { background:#3498db; color:#fff; }
+
+  /* === 考勤统计表 === */
+  .stats-table { border-collapse:collapse; font-size:13px; width:100%; table-layout:auto; }
+  .stats-table th, .stats-table td { padding:6px 8px; border:1px solid #e3e6ea; text-align:center; vertical-align:middle; white-space:nowrap; }
+  .stats-table thead th { background:#34495e; color:#fff; font-weight:600; }
+  .stats-table tbody tr:hover:not(.grand-row):not(.dept-head) { background:#f4f8fc; }
+  .stats-table .grand-row td { background:#fff8e1; font-weight:700; color:#7a5b00; border-bottom:2px solid #e0a800; }
+  .stats-table .dept-head td { background:#f4f6f9; font-weight:600; text-align:left; }
+  .stats-table .dept-head td:not(:first-child) { text-align:center; }
+  .stats-table .dept-detail.hidden { display:none; }
+  .stats-table .dept-detail td { padding:4px 8px; font-size:12px; background:#fbfcfd; }
+  .stats-table .dept-detail td:first-child { padding-left:24px; color:#666; text-align:left; }
+  .stats-table .caret { display:inline-block; width:14px; color:#888; font-size:10px; transition:transform .15s; }
+  .stats-table .dept-head.open .caret { transform:rotate(90deg); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>考勤核对系统</h1>
+  <div class="topbar-right">
+    <span style="font-size:11px;color:#ffd;background:#334;padding:2px 6px;border-radius:3px;margin-right:6px">v2026-09-07-stats2</span>
+    <span id="topRight"></span>
+  </div>
+</header>
+
+<!-- 登录 -->
+<div id="loginBox" class="wrap">
+  <div class="card">
+    <h2>登录</h2>
+    <label>账号</label><input id="lgUser" type="text" placeholder="admin 或 主管账号">
+    <label>密码</label><input id="lgPass" type="password" placeholder="密码">
+    <div style="margin-top:12px"><button onclick="doLogin()">登录</button></div>
+    <div class="msg" id="lgMsg"></div>
+  </div>
+</div>
+
+<!-- 主区域 -->
+<div id="main" class="wrap hidden"></div>
+
+<!-- 详情弹窗 -->
+<div id="detailModal" class="modal-bg hidden">
+  <div class="modal" id="detailContent"></div>
+</div>
+
+<!-- 图片预览 -->
+<div id="imgModal" class="modal-bg hidden" onclick="closeImg()">
+  <img id="imgBig" style="max-width:90%;max-height:90%;">
+</div>
+
+<script>
+const API = (p,m='GET',body)=>{
+  const opt={method:m,headers:{}};
+  const t=localStorage.getItem('tok');
+  if(t) opt.headers['Authorization']='Bearer '+t;
+  if(body!==undefined){opt.headers['Content-Type']='application/json';opt.body=JSON.stringify(body);}
+  return fetch(p,opt).then(r=>r.json().catch(()=>({error:'响应解析失败'})));
+};
+const TOK = () => localStorage.getItem('tok') || '';
+function evSrc(fn){ return '/uploads/' + encodeURIComponent(fn) + '?t=' + encodeURIComponent(TOK()); }
+function fileToB64(file){return new Promise((res,rej)=>{
+  const fr=new FileReader();
+  fr.onload=()=>{const b=new Uint8Array(fr.result);let s='';const ch=0x8000;
+    for(let i=0;i<b.length;i+=ch)s+=String.fromCharCode.apply(null,b.subarray(i,i+ch));
+    res(btoa(s));};
+  fr.onerror=rej;fr.readAsArrayBuffer(file);});}
+
+let META=null; // 全局元信息
+
+/* ---------- 网格通用工具 ---------- */
+const WK=['日','一','二','三','四','五','六'];
+// 返回每天的星期与是否周末（0=周日）
+function weekInfo(days){
+  const y = META&&META.year ? parseInt(META.year) : new Date().getFullYear();
+  const m = META&&META.month ? parseInt(META.month) : (new Date().getMonth()+1);
+  return days.map(d=>{
+    const w = new Date(y, m-1, parseInt(d)).getDay();
+    return { wk:WK[w], we:(w===0||w===6) };
+  });
+}
+// 渲染表头（日号 + 星期），尾部可附加自定义列
+function gridHead(days, tailCols){
+  const wi = weekInfo(days);
+  let h = '<thead><tr><th class="c-name">姓名</th><th class="c-per">时段</th>';
+  h += days.map((d,i)=>`<th class="c-day${wi[i].we?' we':''}" title="${META?META.year+'年'+META.month+'月':''}${d}日 周${wi[i].wk}">${d}<span class="wk">${wi[i].wk}</span></th>`).join('');
+  h += (tailCols||'') + '</tr></thead>';
+  return h;
+}
+// 渲染某员工上/下午两行；cellFn(period, i) 返回单元格 HTML
+function gridRows(emp, days, tailFn, editable){
+  const wi = weekInfo(days);
+  const cell = (p,i)=>{
+    const v = (emp[p] && emp[p][i]!==undefined) ? emp[p][i] : null;
+    let cls = 'c-day' + (wi[i].we?' we':'');
+    const txt = v===null||v==='' ? '' : v;
+    // 有数据时格子染色
+    let colorCls = '';
+    if (v!==null && v!=='' && v!==undefined) {
+      colorCls = ' cell-' + cellColor(emp, p, i);
+    } else {
+      cls += ' c-empty';
+    }
+    // editable 模式下：红格（未审批）走 cellReview；其他走原 editCell
+    let onclick;
+    if (editable) {
+      const k = p+'_'+(i+1);
+      const isRedPending = (emp.cells||{})[k]==='red' && (emp.reviewed_cells||{})[k]!=='green';
+      onclick = isRedPending
+        ? `cellReview(${emp.id},'${p}',${i+1})`
+        : `editCell(${emp.id},'${p}',${i+1},this)`;
+    }
+    return editable
+      ? `<td class="${cls}${colorCls}" onclick="${onclick}"><span class="sym">${txt}</span></td>`
+      : `<td class="${cls}${colorCls}"><span class="sym">${txt}</span></td>`;
+  };
+  let h = '<tr><td class="c-name" rowspan="2">'+emp.name+'</td><td class="c-per">上午</td>';
+  h += days.map((d,i)=>cell('am',i)).join('');
+  h += tailFn ? tailFn(emp) : '';
+  h += '</tr><tr><td class="c-per">下午</td>';
+  h += days.map((d,i)=>cell('pm',i)).join('');
+  h += '</tr>';
+  return h;
+}
+
+/* ---------- 紧凑模式：每员工 1 行 × 2-3 格 ---------- */
+// 计算某格子 (period, day_idx) 的最终颜色
+// 优先级：reviewed_cells > cells > 默认黄
+function cellColor(emp, period, day){
+  const k = period + '_' + (day+1);
+  const rc = emp.reviewed_cells || {};
+  if (rc[k] === 'green') return 'g';
+  const c = emp.cells || {};
+  if (c[k] === 'red')   return 'r';
+  if (c[k] === 'green') return 'g';
+  return 'y';  // 默认黄（主管未提交）
+}
+// 把 emp.am/pm 中有符号的日号拼成"日日日 符号"的小标签串（带颜色）
+// 收集 emp 在 am/pm 中有符号的 {d, v, wk, we, idx}
+// 渲染 1 个员工的紧凑行（格子级三色染色）
+// 渲染表头
+
+async function boot(){
+  const t=localStorage.getItem('tok');
+  if(t){
+    const me=await API('/api/me');
+    if(!me.error){ render(me); return; }
+    localStorage.removeItem('tok');
+  }
+  document.getElementById('loginBox').classList.remove('hidden');
+}
+
+async function doLogin(){
+  const u=document.getElementById('lgUser').value.trim();
+  const p=document.getElementById('lgPass').value;
+  const r=await API('/api/login','POST',{username:u,password:p});
+  if(r.error){document.getElementById('lgMsg').innerHTML='<span class="err">'+r.error+'</span>';return;}
+  localStorage.setItem('tok',r.token);
+  document.getElementById('loginBox').classList.add('hidden');
+  render(r);
+}
+
+function logout(){localStorage.removeItem('tok');location.reload();}
+
+function render(me){
+  document.getElementById('main').classList.remove('hidden');
+  const tr=document.getElementById('topRight');
+  tr.innerHTML='<span>'+me.username+'（'+(me.role==='admin'?'管理员':'主管 · '+me.region)+'）</span><button class="logout" onclick="logout()">退出</button>';
+  if(me.role==='admin') loadAdmin();
+  else loadSupervisor();
+}
+
+/* ============ 管理员 ============ */
+async function loadAdmin(){
+  const meta=await API('/api/meta');
+  META=meta;
+  const m=document.getElementById('main');
+  m.innerHTML=`
+  <div class="card">
+    <h2>1. 上传考勤总表（Excel）</h2>
+    <div class="row"><div>
+      <label>选择总表 .xlsx（仅读取"总表"sheet，按"部门"列分组）</label>
+      <input type="file" id="file" accept=".xlsx,.xls">
+    </div></div>
+    <div style="margin-top:10px"><button onclick="doUpload()">上传并导入</button></div>
+    <div class="msg" id="upMsg"></div>
+    <div class="legend-box" id="legendBox"></div>
+  </div>
+
+  <div class="card">
+    <h2>2. 主管账号（每个部门一个）</h2>
+    <div class="row" style="margin-bottom:10px"><div>
+      <button onclick="bulkCreate()">为全部 129 个部门批量建账号</button>
+      <span class="small">（密码默认 123456，建好后请自行通知并提醒修改）</span>
+    </div></div>
+    <div id="deptList" class="grid-scroll" style="max-height:300px"></div>
+  </div>
+
+  <div class="card">
+    <h2>3. 凭证收件箱（主管提交的异议/凭证）</h2>
+    <div id="inbox"></div>
+  </div>
+
+  <div class="card">
+    <h2>4. 修改考勤符号申请（主管发起，需凭证 + 审批）</h2>
+    <div class="small" style="margin:6px 0;color:#666">
+      主管在"详情"对话框中可以对考勤符号发起"修改申请"，必须上传凭证。您可以同意（自动改考勤数据）或拒绝（必须填写理由）。
+    </div>
+    <div class="toolbar">
+      <label style="margin:0">筛选：</label>
+      <select id="crFilterStatus" onchange="loadChangeRequests()">
+        <option value="all">全部状态</option>
+        <option value="pending">待审批</option>
+        <option value="approved">已通过</option>
+        <option value="rejected">已拒绝</option>
+      </select>
+      <span class="small" id="crCount"></span>
+    </div>
+    <div id="changeRequests"></div>
+  </div>
+
+  <div class="card">
+    <h2>5. 修改考勤数据</h2>
+    <label>选择部门（仅显示该部门，便于修改）</label>
+    <select id="editDept" onchange="loadEditGrid()"></select>
+    <div style="margin:8px 0"><button class="sec" onclick="loadEditGrid()">刷新表格</button></div>
+    <div class="grid-scroll" id="editGrid"></div>
+  </div>
+
+  <div class="card">
+    <h2>6. 导出更新后的总表</h2>
+    <button class="green" onclick="doExport()">导出考勤总表_更新.xlsx</button>
+    <div class="msg small">导出会按原"总表"格式重建：标题 + 星期行 + 图例 + 表头 + 每员工上午/下午两行，已修改的符号会写回。</div>
+  </div>
+
+  <div class="card">
+    <h2>7. 考勤统计（按部门 + 全公司）</h2>
+    <div class="row" style="margin-bottom:10px;align-items:flex-end">
+      <div style="flex:0 0 200px">
+        <label>月应出勤天数（用于"出勤天数 = 月应出勤 - 事假/2 - 缺卡/2"）</label>
+        <input type="number" id="mwInput" min="0" max="31" step="0.5" value="26" style="width:100px">
+      </div>
+      <div style="flex:0">
+        <button onclick="saveMonthWorkdays()">保存</button>
+      </div>
+      <div style="flex:1">
+        <div class="small">统计规则：每个统计项 = 符号出现次数 / 2（一天上下午算 2 次）。</div>
+        <div class="small">出勤天 = 月应出勤 − 事假/2 − 缺卡/2。出差天 = 出差符号数/2。其他都是次数/2。</div>
+      </div>
+      <div style="flex:0">
+        <button class="green" onclick="exportStatsXlsx()">📊 导出统计 Excel</button>
+      </div>
+    </div>
+    <div class="toolbar">
+      <label style="margin:0">部门筛选：</label>
+      <select id="statsDeptFilter" onchange="loadStats()" style="min-width:240px"></select>
+      <button class="sec" onclick="loadStats()">刷新</button>
+      <span class="small" id="statsCount"></span>
+    </div>
+    <div id="statsArea"></div>
+  </div>`;
+  renderLegend(meta);
+  loadDepts();
+  loadInbox();
+  loadEditDepts();
+  loadChangeRequests();
+  loadStatsDeptFilter();
+  loadStats();
+  // 10s 同步一次修改申请 + 凭证收件箱（轻量轮询，详情对话框打开时不打断）
+  if (window.__adminPoll) clearInterval(window.__adminPoll);
+  window.__adminPoll = setInterval(()=>{
+    if (document.getElementById('detailModal')?.classList.contains('hidden') === false) return;
+    if (document.getElementById('changeReqModal')?.parentElement) return;
+    if (document.getElementById('cellReviewModal')?.parentElement) return;
+    loadChangeRequests();
+    loadInbox();
+  }, 10000);
+}
+
+function renderLegend(meta){
+  const box=document.getElementById('legendBox');
+  if(!box) return;
+  if(meta && meta.legend && meta.legend.length){
+    box.innerHTML='<b>符号图例：</b>'+meta.legend.map(l=>`<span>${l.symbol||'?'} = ${l.meaning}</span>`).join('');
+  } else {
+    box.innerHTML='<span class="small">上传总表后此处显示符号图例。</span>';
+  }
+}
+
+async function doUpload(){
+  const f=document.getElementById('file').files[0];
+  if(!f){document.getElementById('upMsg').innerHTML='<span class="err">请先选文件</span>';return;}
+  const b64=await fileToB64(f);
+  document.getElementById('upMsg').textContent='上传中…';
+  const r=await API('/api/upload','POST',{filename:f.name,data:b64});
+  if(r.error){document.getElementById('upMsg').innerHTML='<span class="err">'+r.error+'</span>';return;}
+  document.getElementById('upMsg').innerHTML='<span class="ok">已导入 '+r.records+' 条，部门 '+r.departments+' 个</span>';
+  const meta=await API('/api/meta'); META=meta; renderLegend(meta);
+  loadDepts(); loadInbox(); loadEditDepts();
+}
+
+async function loadDepts(){
+  const r=await API('/api/departments');
+  const box=document.getElementById('deptList');
+  if(r.error){box.innerHTML='<span class="err">'+r.error+'</span>';return;}
+  box.innerHTML=r.departments.map(d=>`
+    <div class="dept-item">
+      <span class="name">${d.dept}</span>
+      ${d.account?`<span class="pill">账号：${d.account}</span>`:`<button onclick="createDept('${encodeURIComponent(d.dept)}')">建账号</button>`}
+    </div>`).join('');
+}
+
+async function createDept(d){
+  const dept=decodeURIComponent(d);
+  const uname=prompt('为该部门设置主管用户名（建议用部门简称，唯一）：',dept.slice(-6));
+  if(!uname) return;
+  const pw=prompt('设置密码（默认123456）：','123456')||'123456';
+  const r=await API('/api/users','POST',{region:dept,username:uname,password:pw});
+  if(r.error){alert(r.error);return;}
+  loadDepts();
+}
+
+async function bulkCreate(){
+  if(!confirm('将为全部部门各创建一个主管账号（密码默认123456）。确定？'))return;
+  const r=await API('/api/departments');
+  let ok=0,fail=0;
+  for(const d of r.departments){
+    if(d.account) continue;
+    const uname='sup_'+ok;
+    const res=await API('/api/users','POST',{region:d.dept,username:uname,password:'123456'});
+    if(res.ok) ok++; else fail++;
+  }
+  alert('已创建 '+ok+' 个账号（失败 '+fail+'）。账号名为 sup_0、sup_1…，密码 123456，请通知主管并提醒修改。');
+  loadDepts();
+}
+
+async function loadInbox(){
+  const r=await API('/api/submissions');
+  const box=document.getElementById('inbox');
+  if(r.error){box.innerHTML='<span class="err">'+r.error+'</span>';return;}
+  if(!r.submissions.length){box.innerHTML='<span class="small">暂无主管提交。</span>';return;}
+  box.innerHTML=r.submissions.map(s=>`
+    <div class="card" style="margin-bottom:10px">
+      <div class="row">
+        <div><b>${s.name}</b> ｜ 部门：${s.dept} ｜ 主管：${s.supervisor}
+          ｜ 状态：<span class="badge b-${s.status==='none'?'none':s.status}">${statusText(s.status)}</span></div>
+      </div>
+      <div class="row" style="margin:6px 0"><div><b>说明：</b>${s.note||'（无）'}</div></div>
+      <div class="row" style="margin:6px 0"><div>凭证：
+        ${s.evidence.length? s.evidence.map(e=>`<img class="ev-thumb" src="${evSrc(e.filename)}" onclick="viewImg(this.src)" onerror="this.onerror=null;this.src='data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2280%22 height=%2280%22><rect width=%22100%25%22 height=%22100%25%22 fill=%22%23eee%22/><text x=%2250%25%22 y=%2250%25%22 font-size=%2214%22 text-anchor=%22middle%22 dy=%22.3em%22 fill=%22%23999%22>凭证</text></svg>'">`).join('') : '（无）'}
+      </div></div>
+      <div class="row" style="margin-top:6px">
+        <div><input type="text" id="an_${s.id}" placeholder="管理员处理备注" value="${s.admin_note||''}"></div>
+        <div style="flex:0"><button class="green" onclick="review(${s.id},'green')">标绿·无问题</button></div>
+        <div style="flex:0"><button class="red" onclick="review(${s.id},'red')">标红·有问题</button></div>
+      </div>
+    </div>`).join('');
+}
+
+function statusText(s){return s==='yellow'?'待审核(黄)':s==='green'?'无问题(绿)':s==='red'?'有问题(红)':'未提交';}
+
+async function review(id,status){
+  const an=document.getElementById('an_'+id).value;
+  const r=await API('/api/submission/review','POST',{id,status,admin_note:an});
+  if(r.error){alert(r.error);return;}
+  loadInbox();
+}
+
+/* ---------- 修改申请收件箱 ---------- */
+async function loadChangeRequests(){
+  const sel = document.getElementById('crFilterStatus');
+  const status = sel ? sel.value : 'all';
+  const r = await API('/api/admin/change_requests?status=' + status);
+  const box = document.getElementById('changeRequests');
+  if (r.error) { box.innerHTML = '<span class="err">' + r.error + '</span>'; return; }
+  const list = r.requests || [];
+  const cnt = document.getElementById('crCount');
+  if (cnt) {
+    const pend = list.filter(x => x.status === 'pending').length;
+    cnt.textContent = '共 ' + list.length + ' 条' + (status === 'all' ? '（待审批 ' + pend + ' 条）' : '');
+  }
+  if (!list.length) {
+    box.innerHTML = '<div class="small" style="color:#888;padding:10px 0">暂无' + (status === 'all' ? '' : (status === 'pending' ? '待审批' : status === 'approved' ? '已通过' : '已拒绝')) + '申请。</div>';
+    return;
+  }
+  box.innerHTML = list.map(cr => {
+    const stBadge = cr.status === 'pending' ? '<span class="badge b-yellow">待审批</span>'
+                  : cr.status === 'approved' ? '<span class="badge b-green">已通过</span>'
+                  : '<span class="badge b-red">已拒绝</span>';
+    const [p, day] = cr.cell_key.split('_');
+    const evHtml = cr.evidence.length
+      ? cr.evidence.map(e => `<a href="/uploads/${encodeURIComponent(e.filename)}?t=${encodeURIComponent(TOK()||'')}" target="_blank"><img class="ev-thumb" src="/uploads/${encodeURIComponent(e.filename)}?t=${encodeURIComponent(TOK()||'')}" onerror="this.onerror=null;this.src='data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2280%22 height=%2280%22><rect width=%22100%25%22 height=%22100%25%22 fill=%22%23eee%22/><text x=%2250%25%22 y=%2250%25%22 font-size=%2214%22 text-anchor=%22middle%22 dy=%22.3em%22 fill=%22%23999%22>凭证</text></svg>'"></a>`).join('')
+      : '<div class="small" style="color:#888">主管未上传凭证</div>';
+    const actionHtml = cr.status === 'pending'
+      ? `<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <input type="text" id="crj_${cr.submission_id}_${cr.request_id}" placeholder="拒绝理由（拒绝时必填）" style="flex:1;min-width:240px">
+          <button class="green" onclick="approveChangeRequest(${cr.submission_id},'${cr.request_id}')">同意并改考勤</button>
+          <button class="red" onclick="rejectChangeRequest(${cr.submission_id},'${cr.request_id}')">拒绝</button>
+        </div>`
+      : (cr.status === 'rejected' && cr.reject_reason
+          ? `<div class="small" style="color:#c0392b;margin-top:6px"><b>拒绝理由：</b>${cr.reject_reason}</div>`
+          : (cr.reviewer ? `<div class="small" style="color:#666;margin-top:6px">处理人：${cr.reviewer} · ${cr.reviewed_at || ''}</div>` : ''));
+    return `<div class="card" style="margin-bottom:10px;background:#fafbfd">
+        <div class="row">
+          <div><b>${cr.name}</b> ｜ 部门：${cr.dept} ｜ 主管：${cr.supervisor}
+            ｜ 格子：<span class="pill">${p==='am'?'上午':'下午'} ${day}日</span>
+            ｜ 状态：${stBadge}</div>
+        </div>
+        <div class="row" style="margin:6px 0">
+          <div><b>变更：</b><code>${cr.old || '（空）'}</code>
+            <span style="color:#888">→</span>
+            <code style="background:#d4edda;padding:2px 6px;border-radius:3px">${cr.new || '（空）'}</code></div>
+        </div>
+        ${cr.reason ? `<div class="row" style="margin:6px 0"><div><b>主管备注：</b>${cr.reason}</div></div>` : ''}
+        <div class="row" style="margin:6px 0"><div><b>凭证：</b>${evHtml}</div></div>
+        ${actionHtml}
+      </div>`;
+  }).join('');
+}
+
+async function approveChangeRequest(subId, reqId){
+  if (!confirm('确认同意该修改申请？同意后该格子的考勤符号将自动改为新值（导出总表时会同步更新）。')) return;
+  const r = await API('/api/admin/change_request/review','POST',{
+    submission_id: subId, request_id: reqId, decision: 'approve'
+  });
+  if (r.error) { alert(r.error); return; }
+  await loadChangeRequests();
+  await loadInbox();
+  if (typeof loadEditGrid === 'function') await loadEditGrid();
+}
+
+async function rejectChangeRequest(subId, reqId){
+  const reason = document.getElementById(`crj_${subId}_${reqId}`)?.value?.trim();
+  if (!reason) { alert('拒绝必须填写理由'); return; }
+  if (!confirm(`确认拒绝该修改申请？\n理由：${reason}`)) return;
+  const r = await API('/api/admin/change_request/review','POST',{
+    submission_id: subId, request_id: reqId, decision: 'reject', reject_reason: reason
+  });
+  if (r.error) { alert(r.error); return; }
+  await loadChangeRequests();
+  await loadInbox();
+}
+
+async function loadEditDepts(){
+  const r=await API('/api/departments');
+  const sel=document.getElementById('editDept');
+  if(r.error) return;
+  sel.innerHTML='<option value="">-- 选择部门 --</option>'+r.departments.map(d=>`<option value="${encodeURIComponent(d.dept)}">${d.dept}</option>`).join('');
+  if(r.departments.length) { sel.value=encodeURIComponent(r.departments[0].dept); loadEditGrid(); }
+}
+
+/* ============ 考勤统计（管理员） ============ */
+function _fmtNum(v){
+  if (v === null || v === undefined) return '';
+  const n = Number(v);
+  if (!isFinite(n)) return '';
+  // 整数显示 0；非整数保留 2 位
+  return Number.isInteger(n) ? String(n) : n.toFixed(2);
+}
+function _statsRowHtml(cells, opts={}){
+  const cls = opts.bold ? 'style="font-weight:600"' : '';
+  return '<tr '+cls+'>' + cells.map(c => {
+    if (c === null || c === undefined) return '<td></td>';
+    if (typeof c === 'object' && c.html !== undefined) return `<td${c.attrs||''}>${c.html}</td>`;
+    return `<td>${c}</td>`;
+  }).join('') + '</tr>';
+}
+async function loadStatsDeptFilter(){
+  const r = await API('/api/departments');
+  const sel = document.getElementById('statsDeptFilter');
+  if(!sel || r.error) return;
+  sel.innerHTML = '<option value="">-- 全部部门 --</option>'
+    + r.departments.map(d=>`<option value="${encodeURIComponent(d.dept)}">${d.dept}（${(d.emp_count||'')}）</option>`).join('');
+}
+async function saveMonthWorkdays(){
+  const v = document.getElementById('mwInput').value;
+  const r = await API('/api/admin/month_workdays','POST',{month_workdays: parseFloat(v)});
+  const msg = document.getElementById('statsCount');
+  if(r.error){
+    if(msg) msg.innerHTML = '<span class="err">'+r.error+'</span>';
+    else alert(r.error);
+    return;
+  }
+  if(msg) msg.innerHTML = '<span class="ok">已保存月应出勤 = '+r.month_workdays+'</span>';
+  loadStats();
+}
+async function loadStats(){
+  const sel = document.getElementById('statsDeptFilter');
+  const dept = sel && sel.value ? decodeURIComponent(sel.value) : '';
+  const mw = document.getElementById('mwInput')?.value || 26;
+  const r = await API('/api/admin/stats?month_workdays=' + mw + (dept? '&dept=' + encodeURIComponent(dept):''));
+  const area = document.getElementById('statsArea');
+  if(!area) return;
+  if(r.error){ area.innerHTML='<span class="err">'+r.error+'</span>'; return; }
+  // 同步输入框
+  if (document.getElementById('mwInput')) document.getElementById('mwInput').value = r.month_workdays;
+  const cats = r.categories;
+  const cntEl = document.getElementById('statsCount');
+  if (cntEl) cntEl.innerHTML = `共 <b>${r.total_employees}</b> 人 / <b>${r.total_departments}</b> 个部门 / 月应出勤 = <b>${r.month_workdays}</b> 天`;
+  // 表头：姓名/部门 + 14 stats + 公司 = 16 列
+  const head = ['<th>姓名/部门</th>']
+    .concat(cats.map(c=>`<th title="${c}">${c}</th>`))
+    .concat(['<th>公司</th>']).join('');
+  // 全公司汇总行：14 stats + 公司=全公司
+  const grandCells = ['<b>📊 全公司合计</b>']
+    .concat(cats.map(c => `<b>${_fmtNum(r.grand_totals[c])}</b>`))
+    .concat(['<b>全公司</b>']);
+  let html = '<div class="grid-scroll" style="max-height:520px"><table class="stats-table"><thead><tr>'+head+'</tr></thead><tbody>';
+  // 全公司合计行
+  html += '<tr class="grand-row">'+grandCells.map(c=>`<td>${c}</td>`).join('')+'</tr>';
+  for (const d of r.by_dept){
+    // 部门聚合行：部门名 + 14 stats + 该部门员工的众数公司
+    const empCos = d.employees.map(e=>e.company||'').filter(Boolean);
+    const deptCompany = empCos.length ? empCos.sort((a,b)=>empCos.filter(x=>x===b).length-empCos.filter(x=>x===a).length)[0] : '';
+    const deptCells = [`<span class="caret">▶</span> <b>📁 ${escapeHtml(d.dept)}（${d.employees.length}人）</b>`]
+      .concat(cats.map(c=>`<b>${_fmtNum(d.totals[c])}</b>`))
+      .concat([`<b>${escapeHtml(deptCompany)}</b>`]);
+    html += `<tr class="dept-row dept-head" data-dept="${d.dept}" onclick="toggleDeptDetail(this)" style="cursor:pointer;background:#fafbfc;font-weight:600">`
+      + deptCells.map(c=>`<td>${c}</td>`).join('') + '</tr>';
+    // 员工明细行
+    const detail = d.employees.map(e => {
+      const statCells = cats.map(c => `<td>${_fmtNum(e.stats[c])}</td>`).join('');
+      return `<tr class="dept-detail hidden" data-for="${d.dept}"><td>├ ${escapeHtml(e['name'])}</td>${statCells}<td>${escapeHtml(e.company||'')}</td></tr>`;
+    }).join('');
+    html += detail;
+  }
+  html += '</tbody></table></div>';
+  area.innerHTML = html;
+}
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function toggleDeptDetail(row){
+  const dept = row.getAttribute('data-dept');
+  // 该部门下所有员工的 detail 行（可能有多个）
+  const details = document.querySelectorAll(`tr.dept-detail[data-for="${CSS.escape(dept)}"]`);
+  const caret = row.querySelector('.caret');
+  if (!details.length) return;
+  const hidden = !details[0].classList.contains('hidden');
+  // 全部切换
+  details.forEach(el => el.classList.toggle('hidden', hidden));
+  if (caret) caret.textContent = hidden ? '▶' : '▼';
+}
+async function exportStatsXlsx(){
+  const mw = document.getElementById('mwInput')?.value || 26;
+  const t = localStorage.getItem('tok')||'';
+  const url = '/api/admin/stats/export?month_workdays=' + mw;
+  fetch(url, {headers:{'Authorization':'Bearer '+t}}).then(r=>{
+    if (!r.ok) { alert('导出失败：HTTP '+r.status); return; }
+    const cd = r.headers.get('Content-Disposition')||'';
+    const m = cd.match(/filename\*=UTF-8''([^;]+)/);
+    const fname = m ? decodeURIComponent(m[1]) : '考勤统计.xlsx';
+    return r.blob().then(b=>{const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=fname;a.click();});
+  });
+}
+
+async function loadEditGrid(){
+  const sel=document.getElementById('editDept');
+  if(!sel.value) return;
+  const dept=decodeURIComponent(sel.value);
+  const [r, subR] = await Promise.all([API('/api/admin/employees'), API('/api/submissions')]);
+  if(r.error){document.getElementById('editGrid').innerHTML='<span class="err">'+r.error+'</span>';return;}
+  let emps=r.employees.filter(e=>e.dept===dept);
+  const days=META?META.day_numbers:[];
+  const box=document.getElementById('editGrid');
+  if(!emps.length){box.innerHTML='<span class="small">该部门暂无员工数据。</span>';return;}
+  // 把 cells / reviewed_cells 注入每个 emp（方便 cellColor 工作）
+  const subByEmp = {};
+  if (subR.submissions) {
+    for (const s of subR.submissions) {
+      subByEmp[s.emp_id] = s;
+    }
+  }
+  emps = emps.map(e => {
+    const s = subByEmp[e.id];
+    if (s) {
+      e.cells = s.cells || {};
+      e.reviewed_cells = s.reviewed_cells || {};
+      e.submission = s;
+    } else {
+      e.cells = {};
+      e.reviewed_cells = {};
+    }
+    return e;
+  });
+  // 统计待审批红格数（仅主管提交的红格，且未审批）
+  let totalRed = 0, reviewedRed = 0;
+  for (const e of emps) {
+    for (const k of Object.keys(e.cells||{})) {
+      if (e.cells[k]==='red') {
+        if ((e.reviewed_cells||{})[k]==='green') reviewedRed++;
+        else totalRed++;
+      }
+    }
+  }
+  let html;
+  html = '<table class="grid">'+gridHead(days,'')+'<tbody>'
+    + emps.map(e=>gridRows(e,days,null,true)).join('')
+    + '</tbody></table>';
+  // 颜色图例 + 待审批提示
+  let pendingBanner = '';
+  if (totalRed > 0) {
+    pendingBanner = `<div class="msg" style="background:#fff3cd;border:1px solid #f6c343;padding:8px;border-radius:5px;margin:8px 0;color:#856404">
+      <b>⏰ 待审批红格 ${totalRed} 处</b>（本部门主管已标记有问题，等待您审批）。
+      <span class="small">点击日历模式下的红色格子可查看凭证并修改考勤数据；或调"凭证收件箱"统一处理。</span>
+    </div>`;
+  } else if (reviewedRed > 0) {
+    pendingBanner = `<div class="msg" style="background:#d4edda;border:1px solid #c3e6cb;padding:8px;border-radius:5px;margin:8px 0;color:#155724">
+      ✓ 本部门所有红格已审批完成（${reviewedRed} 处）。
+    </div>`;
+  }
+  box.innerHTML =
+    '<div class="toolbar">'
+    + '<span class="small">共 ' + emps.length + ' 人。日历模式：每员工 2 行（上午/下午）× 31 列（每天一格）。点击任意格子可直接修改符号；红色格子表示主管标记为"有问题的格子+凭证"，点击后查看凭证并修改考勤数据。表格可左右滚动，表头（日期+星期）始终固定在最上方。</span></div>'
+    + pendingBanner
+    + html;
+}
+function editCell(empId,period,day,td){
+  if(td.querySelector('select')) return;
+  const cur=td.textContent;
+  const sel=document.createElement('select');
+  const legend=META?META.legend:[];
+  sel.innerHTML='<option value="">（清空）</option>'+legend.map(l=>`<option value="${l.symbol}">${l.symbol} ${l.meaning}</option>`).join('')+`<option value="__custom">自定义…</option>`;
+  sel.value=cur;
+  td.innerHTML=''; td.appendChild(sel); td.classList.add('cell-edit');
+  sel.focus();
+  sel.onchange=async()=>{
+    let v=sel.value;
+    if(v==='__custom'){v=prompt('输入符号：',cur)||'';}
+    const r=await API('/api/employee/edit','POST',{emp_id:empId,period,day,symbol:v});
+    if(r.error){alert(r.error);return;}
+    td.classList.remove('cell-edit'); td.textContent=v;
+    // 同步刷新收件箱不影响；若有需要可重载
+  };
+  sel.onblur=()=>{ if(sel.parentElement) {td.classList.remove('cell-edit'); td.textContent=cur;} };
+}
+
+// 管理员审批红格：弹窗显示凭证 + 修改考勤符号
+async function cellReview(empId, period, day){
+  // 找该员工最近的 submission 和对应凭证
+  const subR = await API('/api/submissions');
+  const subs = subR.submissions || [];
+  const mySub = subs.find(s => s.emp_id === empId);
+  if (!mySub) { alert('该员工没有提交记录'); return; }
+  const cellKey = `${period}_${day}`;
+  const evidences = (mySub.evidence || []).filter(e => (e.cell_key||'') === cellKey);
+  // 当前员工 am/pm 值
+  const empR = await API('/api/admin/employees');
+  const emp = empR.employees.find(x => x.id === empId);
+  const arr = period === 'am' ? (emp.am||[]) : (emp.pm||[]);
+  const cur = arr[day-1] || '';
+  const legend = META?META.legend : [];
+  const optHtml = '<option value="">（清空）</option>'
+    + legend.map(l=>`<option value="${l.symbol}">${l.symbol} ${l.meaning}</option>`).join('')
+    + `<option value="__custom">自定义…</option>`;
+  const evHtml = evidences.length
+    ? evidences.map(e=>`<a href="/uploads/${encodeURIComponent(e.filename)}?t=${encodeURIComponent(TOK()||'')}" target="_blank"><img class="ev-thumb" src="/uploads/${encodeURIComponent(e.filename)}?t=${encodeURIComponent(TOK()||'')}" onerror="this.onerror=null;this.src='data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2280%22 height=%2280%22><rect width=%22100%25%22 height=%22100%25%22 fill=%22%23eee%22/><text x=%2250%25%22 y=%2250%25%22 font-size=%2214%22 text-anchor=%22middle%22 dy=%22.3em%22 fill=%22%23999%22>凭证</text></svg>'"></a>`).join('')
+    : '<div class="small" style="color:#888">该格子没有凭证照片（主管标记了问题但未上传照片）</div>';
+  const html = `<div class="modal-bg" id="cellReviewModal">
+    <div class="modal" style="max-width:560px">
+      <h3>审批格子 · ${emp.name} · ${period==='am'?'上午':'下午'} ${day}日</h3>
+      <div class="color-legend" style="margin:6px 0">
+        <span class="lg lg-r"><span class="sw"></span>主管标记有问题</span>
+        <span class="lg lg-g"><span class="sw"></span>已审批通过</span>
+      </div>
+      <div style="margin:6px 0"><b>当前考勤符号：</b><code style="background:#f0f0f0;padding:2px 6px;border-radius:3px">${cur || '（空）'}</code></div>
+      <div style="margin:10px 0"><b>主管提交的凭证：</b><div style="margin-top:6px">${evHtml}</div></div>
+      <label>修改为新符号（审批通过后会同步写回总表）</label>
+      <select id="revSymbol" style="width:100%">${optHtml}</select>
+      <div style="margin-top:10px;display:flex;gap:8px;justify-content:flex-end">
+        <button class="sec" onclick="document.getElementById('cellReviewModal').remove()">取消</button>
+        <button class="green" onclick="submitCellReview(${mySub.id},'${cellKey}',${empId},'${period}',${day})">确认修改并审批通过</button>
+      </div>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+  // 选中当前符号
+  const sel = document.getElementById('revSymbol');
+  if (sel) sel.value = cur || '';
+}
+
+async function submitCellReview(subId, cellKey, empId, period, day){
+  let v = document.getElementById('revSymbol').value;
+  if (v === '__custom') v = prompt('输入符号：', '') || '';
+  if (!confirm(`确认把该格子修改为"${v || '（空）'}"并标记为已审批？`)) return;
+  const r = await API('/api/submission/review','POST',{
+    action: 'cell_review', id: subId, cell_key: cellKey, symbol: v
+  });
+  if (r.error) { alert(r.error); return; }
+  document.getElementById('cellReviewModal')?.remove();
+  // 重新加载
+  await loadEditGrid();
+  await loadInbox();
+}
+
+/* ---------- 弹窗式日级编辑器（紧凑模式用） ---------- */
+let _editing = null; // {empId, period, origAm, origPm}
+async function openDayEditor(empId, period, srcTd){
+  // 取该员工最新数据
+  const r = await API('/api/admin/employees');
+  if(r.error){alert(r.error);return;}
+  const emp = r.employees.find(x=>x.id===empId);
+  if(!emp){alert('未找到员工');return;}
+  const days = META?META.day_numbers : [];
+  const legend = META?META.legend : [];
+  const arr = (period==='am' ? emp.am : emp.pm) || [];
+  const wi = weekInfo(days);
+  _editing = {empId, period, origAm:[...emp.am], origPm:[...emp.pm]};
+  // 弹窗
+  const optHtml = '<option value="">（清空）</option>'
+    + legend.map(l=>`<option value="${l.symbol}">${l.symbol} ${l.meaning}</option>`).join('')
+    + `<option value="__custom">自定义…</option>`;
+  const rows = days.map((d,i)=>{
+    const w = wi[i];
+    const cur = arr[i]||'';
+    return `<tr class="${w.we?'we':''}">
+      <td class="de-day" style="width:60px">${d}日</td>
+      <td class="de-wk" style="width:50px;color:#888">周${w.wk}</td>
+      <td class="de-sel" style="text-align:left">
+        <select data-i="${i}" style="width:100%">${optHtml}</select>
+      </td>
+    </tr>`;
+  }).join('');
+  const modal = document.createElement('div');
+  modal.className = 'modal-bg';
+  modal.id = 'dayEditorModal';
+  modal.innerHTML = `<div class="modal" style="max-width:680px">
+    <h3>编辑 · ${emp.name} · ${period==='am'?'上午':'下午'} 31天考勤</h3>
+    <div class="small" style="margin:6px 0;color:#888">修改后点"保存"一次性提交；点"取消"放弃修改。每行可单独设置或留空。</div>
+    <div style="max-height:60vh;overflow:auto;border:1px solid #e0e0e0;border-radius:6px">
+      <table class="de-table" style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead><tr style="background:#ecf0f1"><th style="padding:6px">日号</th><th>星期</th><th>符号</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+    <div style="margin-top:14px;text-align:right;display:flex;gap:8px;justify-content:flex-end">
+      <button class="sec" onclick="closeDayEditor(false)">取消</button>
+      <button class="green" onclick="closeDayEditor(true)">保存修改</button>
+    </div>
+  </div>`;
+  document.body.appendChild(modal);
+  // 把当前值填到下拉
+  rows; // already built
+  modal.querySelectorAll('select[data-i]').forEach(sel=>{
+    sel.value = arr[+sel.dataset.i] || '';
+  });
+}
+async function closeDayEditor(save){
+  const modal = document.getElementById('dayEditorModal');
+  if(!modal || !_editing){return;}
+  if(!save){
+    modal.remove(); _editing = null; return;
+  }
+  // 收集所有 select 值
+  const days = META.day_numbers;
+  const updates = [];
+  modal.querySelectorAll('select[data-i]').forEach(sel=>{
+    const i = +sel.dataset.i;
+    let v = sel.value;
+    if(v==='__custom'){v=prompt('输入符号：','')||'';}
+    updates.push({day:i+1, symbol:v});
+  });
+  // 一次性批量提交
+  const r = await API('/api/employee/batch','POST',{emp_id:_editing.empId, period:_editing.period, updates});
+  if(r.error){alert(r.error);return;}
+  modal.remove(); _editing = null;
+  // 刷新
+  if(typeof loadEditGrid==='function') await loadEditGrid();
+  alert(`已保存 ${r.saved||updates.length} 处修改`);
+}
+
+function doExport(){
+  const t=localStorage.getItem('tok');
+  fetch('/api/export',{headers:{'Authorization':'Bearer '+t}}).then(r=>{
+    const cd=r.headers.get('Content-Disposition')||'';
+    const m=cd.match(/filename\*=UTF-8''([^;]+)/);
+    const fname=m?decodeURIComponent(m[1]):'考勤总表_更新.xlsx';
+    return r.blob().then(b=>{const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=fname;a.click();});
+  });
+}
+
+/* ============ 主管 ============ */
+async function loadSupervisor(){
+  const meta=await API('/api/meta'); META=meta;
+  const m=document.getElementById('main');
+  m.innerHTML=`
+  <div class="card">
+    <h2>本区考勤一览（${META&&META.year?META.year+'年'+META.month+'月':''}）</h2>
+    <div class="legend-box" id="legendBox"></div>
+    <div class="color-legend">
+      <span class="lg lg-y"><span class="sw"></span>待核对（黄）</span>
+      <span class="lg lg-g"><span class="sw"></span>已确认（绿）</span>
+      <span class="lg lg-r"><span class="sw"></span>有问题+凭证（红）</span>
+      <span class="small">说明：登录时所有有数据的格子默认显示黄色；点"提交（无误）"整单变绿；点"详情"对个别格子提交凭证（红）。</span>
+    </div>
+    <div style="margin:10px 0"><button class="green" onclick="supExport()">导出/查看本区更新总表</button></div>
+    <div class="grid-scroll" id="supGrid"></div>
+  </div>`;
+  renderLegend(meta);
+  loadSupGrid();
+  // 10s 同步一次：主管自己的申请 + 格子状态变化
+  if (window.__supPoll) clearInterval(window.__supPoll);
+  window.__supPoll = setInterval(async ()=>{
+    if (!document.getElementById('detailModal')?.classList.contains('hidden')) return;
+    if (document.getElementById('changeReqModal')?.parentElement) return;
+    if (document.getElementById('cellIssueModal')?.parentElement) return;
+    try {
+      const r = await API('/api/my/employees');
+      if (!r.error) { SUP_EMPS = r.employees || []; renderSupGrid(); }
+    } catch(e) {}
+  }, 10000);
+}
+
+let SUP_EMPS=[]; // 主管本区员工缓存，供筛选使用
+async function loadSupGrid(){
+  const r=await API('/api/my/employees');
+  const box=document.getElementById('supGrid');
+  if(r.error){box.innerHTML='<span class="err">'+r.error+'</span>';return;}
+  SUP_EMPS=r.employees||[];
+  if(!SUP_EMPS.length){box.innerHTML='<span class="small">暂无本区员工数据，请联系管理员上传总表。</span>';return;}
+  // 筛选工具条（只渲染一次）
+  if(!document.getElementById('supFilter')){
+    box.insertAdjacentHTML('beforebegin',
+      '<div class="toolbar" id="supFilter">'
+      + '<label style="margin:0">筛选：</label>'
+      + '<select id="fStatus" onchange="renderSupGrid()">'
+      + '<option value="">全部员工</option><option value="pending">待核对（黄）</option>'
+      + '<option value="submitted">已提交（含绿/红）</option>'
+      + '<option value="approved">已审批（绿）</option>'
+      + '</select>'
+      + '<input type="text" id="fName" placeholder="搜索姓名" oninput="renderSupGrid()">'
+      + '<span class="small" id="fCount"></span></div>');
+  }
+  renderSupGrid();
+}
+
+function renderSupGrid(){
+  const days=META?META.day_numbers:[];
+  const box=document.getElementById('supGrid');
+  const fs=document.getElementById('fStatus')?document.getElementById('fStatus').value:'';
+  const fn=(document.getElementById('fName')?document.getElementById('fName').value:'').trim();
+  // 按格子最严重色判断员工的"主要状态"
+  function mainColor(e){
+    const am = e.am||[], pm = e.pm||[];
+    let hasR=false, hasY=false;
+    for(let i=0;i<Math.max(am.length,pm.length);i++){
+      const cv = cellColor(e,'am',i);
+      if(cv==='r') hasR=true;
+      if(cv==='y') hasY=true;
+    }
+    for(let i=0;i<Math.max(am.length,pm.length);i++){
+      const cv = cellColor(e,'pm',i);
+      if(cv==='r') hasR=true;
+      if(cv==='y') hasY=true;
+    }
+    if(hasR) return 'red';         // 至少一个红格
+    if(hasY) return 'pending';     // 还有黄格（主管未提交完）
+    return 'approved';             // 全绿
+  }
+  const emps=SUP_EMPS.filter(e=>(!fs||mainColor(e)===fs)&&(!fn||(e.name||'').indexOf(fn)>=0));
+  const cnt=document.getElementById('fCount');
+  if(cnt) cnt.textContent='共 '+emps.length+' 人（本区共 '+SUP_EMPS.length+' 人）';
+  if(!emps.length){box.innerHTML='<span class="small">没有符合条件的员工。</span>';return;}
+  // 操作列：状态徽章（rowspan=2 跨上下午两行） + 两个按钮
+  const tailFn=(e)=>`<td class="c-st" rowspan="2">${mainColor(e)==='red'?'<span class="badge b-red">有红格</span>':mainColor(e)==='pending'?'<span class="badge b-yellow">待核对</span>':'<span class="badge b-green">已确认</span>'}</td>`
+                  + `<td class="c-op" rowspan="2"><button class="green" onclick="supSubmitAll(${e.id})">提交（无误）</button><button onclick="openDetail(${e.id})">详情</button></td>`;
+  let html;
+  html = '<table class="grid">'+gridHead(days,'<th class="c-st">状态</th><th class="c-op">操作</th>')+'<tbody>'
+    + emps.map(e=>gridRows(e,days,tailFn,false)).join('')
+    + '</tbody></table>';
+  box.innerHTML=html;
+}
+
+// 主管整单提交（无误）
+async function supSubmitAll(empId){
+  if(!confirm('确认该员工考勤数据全部无误？提交后所有有数据的格子将变为绿色（可继续点"详情"撤销或重新标记个别格子为红色）。')) return;
+  const r = await API('/api/my/submission','POST',{emp_id:empId, mode:'all_ok', note:'整单无误'});
+  if(r.error){alert(r.error);return;}
+  // 重新拉数据
+  await loadSupGrid();
+}
+
+async function openDetail(empId){
+  const r=await API('/api/my/submission?emp_id='+empId);
+  const days=META?META.day_numbers:[];
+  let sub=r.submission;
+  const c=document.getElementById('detailContent');
+  const me=await API('/api/my/employees');
+  const emp=me.employees.find(x=>x.id===empId);
+  // 把 cells / reviewed_cells 合到 emp 上，方便 cellColor 函数工作
+  if (sub && sub.cells) emp.cells = sub.cells;
+  if (sub && sub.reviewed_cells) emp.reviewed_cells = sub.reviewed_cells;
+  const legend=META?META.legend:[];
+  const am=emp?emp.am:[]; const pm=emp?emp.pm:[];
+  const wi=weekInfo(days);
+  const dayTh=days.map((d,i)=>`<th class="c-day${wi[i].we?' we':''}">${d}<span class="wk">${wi[i].wk}</span></th>`).join('');
+  // 格子可点击的渲染函数（有数据 + 空格子均可点开修改）
+  const cellHtml = (p, i, v) => {
+    const isEmpty = (v === null || v === undefined || v === '');
+    const wiCls = wi[i].we ? ' we' : '';
+    if (isEmpty) {
+      // 空格子：c-empty 点击弹窗申请修改或标绿
+      return `<td class="c-day${wiCls} c-empty cell-clickable" onclick="openCellIssue(${empId},'${p}',${i+1},'')" title="点击申请修改此空白格">·</td>`;
+    }
+    const cv = cellColor(emp, p, i);
+    const cls = `c-day${wiCls} cell-${cv} cell-clickable`;
+    return `<td class="${cls}" onclick="openCellIssue(${empId},'${p}',${i+1},'${(v||'').toString().replace(/'/g,'&#39;')}')" title="点击标记该格子">${v}</td>`;
+  };
+  const rowHtml=(p,arr)=>`<tr><td class="c-per">${p==='am'?'上午':'下午'}</td>`
+    + days.map((d,i)=>cellHtml(p,i,arr[i])).join('')+'</tr>';
+  // 该员工当前所有凭证（按 cell_key 索引）
+  const evByCell = {};
+  if (sub && sub.evidence) {
+    for (const e of sub.evidence) {
+      const k = e.cell_key || '';
+      evByCell[k] = evByCell[k] || [];
+      evByCell[k].push(e);
+    }
+  }
+  // 列出"有问题"的格子（红格）下方的凭证预览
+  const redCells = Object.keys(emp.cells||{}).filter(k => (emp.cells||{})[k]==='red' && !(emp.reviewed_cells||{})[k]);
+  const redList = redCells.map(k => {
+    const evs = evByCell[k]||[];
+    const [p, day] = k.split('_');
+    return `<div class="cell-ev-row">
+      <span class="pill">${p==='am'?'上午':'下午'} ${day}日</span>
+      <span>${evs.length?'<img class="ev-thumb" src="/uploads/'+encodeURIComponent(evs[0].filename)+'?t='+encodeURIComponent(TOK()||'')+'" onclick="viewImg(this.src)" onerror="this.onerror=null;this.outerHTML=\'<span class=&quot;small&quot; style=&quot;color:#c00&quot;>凭证加载失败</span>\'">':'<span class="small">无凭证</span>'}</span>
+      <button class="sec" onclick="openCellIssue(${empId},'${p}',${parseInt(day)},'')">改</button>
+    </div>`;
+  }).join('');
+  // 修改申请记录（待审/已通过/已拒绝）
+  const crs = (sub && sub.change_requests) || {};
+  const crIds = Object.keys(crs).sort();
+  const crHtml = crIds.length ? crIds.map(rid => {
+    const cr = crs[rid];
+    const [p, day] = cr.cell_key.split('_');
+    const status = cr.status || 'pending';
+    const stBadge = status === 'pending' ? '<span class="badge b-yellow">待审批</span>'
+                  : status === 'approved' ? '<span class="badge b-green">已通过</span>'
+                  : '<span class="badge b-red">已拒绝</span>';
+    const evs = (sub.evidence||[]).filter(e => (e.request_id||'') === rid);
+    const evHtml = evs.length ? evs.map(e=>`<img class="ev-thumb" src="/uploads/${encodeURIComponent(e.filename)}?t=${encodeURIComponent(TOK()||'')}" onclick="viewImg(this.src)" onerror="this.onerror=null;this.outerHTML='<span class=&quot;small&quot; style=&quot;color:#c00&quot;>凭证加载失败</span>'">`).join('') : '<span class="small" style="color:#888">无凭证</span>';
+    return `<div class="cr-row cr-${status}">
+      <span class="pill">${p==='am'?'上午':'下午'} ${day}日</span>
+      <span><code>${cr.old || '（空）'}</code> → <code style="background:#d4edda;padding:2px 6px;border-radius:3px">${cr.new || '（空）'}</code></span>
+      <span>${stBadge}</span>
+      <span class="small">${cr.reason ? '备注：' + cr.reason : ''}</span>
+      ${status==='rejected' && cr.reject_reason ? `<div class="small" style="color:#c0392b;flex-basis:100%;margin-top:4px"><b>拒绝理由：</b>${cr.reject_reason}</div>` : ''}
+      <span style="display:flex;gap:4px;align-items:center">${evHtml}</span>
+      ${status==='pending' ? `<button class="sec" onclick="cancelChangeRequest(${empId},'${rid}')">撤回</button>` : ''}
+    </div>`;
+  }).join('') : '<div class="small" style="color:#888">暂无修改申请。在日历中点格子 → "申请修改"即可发起。</div>';
+  let html=`<h3>考勤详情 · ${emp?emp.name:empId}</h3>
+    <div class="legend-box">${legend.map(l=>`<span>${l.symbol} = ${l.meaning}</span>`).join('')}</div>
+    <div class="color-legend" style="margin:6px 0">
+      <span class="lg lg-y"><span class="sw"></span>待核对（黄）</span>
+      <span class="lg lg-g"><span class="sw"></span>已确认（绿）</span>
+      <span class="lg lg-r"><span class="sw"></span>有问题+凭证（红）</span>
+      <span class="lg lg-pending"><span class="sw"></span>修改申请中</span>
+    </div>
+    <div class="small" style="margin:4px 0;color:#888">
+      点击任意"有数据"的格子 → 选"申请修改"可发起考勤符号变更（需上传凭证，待管理员审批）；
+      选"有问题"是主管标记异常（标红格）；选"没问题"是把红格改回绿。
+    </div>
+    <div class="grid-scroll" style="margin:10px 0">
+      <table class="grid"><thead><tr><th class="c-per">时段</th>${dayTh}</tr></thead><tbody>
+      ${rowHtml('am',am)}
+      ${rowHtml('pm',pm)}
+      </tbody></table>
+    </div>
+    <div id="redList" style="margin:8px 0">
+      <b>标记为有问题的格子（${redCells.length}）</b>
+      ${redCells.length ? redList : '<div class="small" style="color:#888">暂无。点上面黄色格子开始标记。</div>'}
+    </div>
+    <div id="crList" style="margin:14px 0 8px 0;padding-top:10px;border-top:1px dashed #ddd">
+      <b>修改申请记录（${crIds.length}）</b>
+      ${crHtml}
+    </div>
+    <label>说明（选填，给管理员看的备注）</label>
+    <textarea id="dvNote" rows="2" placeholder="可补充说明哪些格子有问题、为何有异议等">${sub?sub.note||'':''}</textarea>
+    <div style="margin-top:10px" id="dvBtns">
+      <button class="green" onclick="submitDetailAllOk(${empId})">全部确认（整单无误）</button>
+      <button onclick="submitDetailPartial(${empId})" style="margin-left:6px">保存当前标记</button>
+      <button class="sec" onclick="closeDetail()" style="margin-left:6px">取消</button>
+      ${sub&&sub.status==='approved'?'<span class="badge b-green" style="margin-left:8px">管理员已审批</span>':''}
+      ${sub&&sub.admin_note?`<div class="small">管理员备注：${sub.admin_note}</div>`:''}
+    </div>`;
+  c.innerHTML=html;
+  document.getElementById('detailModal').classList.remove('hidden');
+}
+
+// 主管点击格子：标记 / 撤销问题 + 上传凭证
+async function openCellIssue(empId, period, day, currentSymbol){
+  // 检查该格子的当前状态（结合 emp.cells + reviewed_cells）
+  const me = await API('/api/my/employees');
+  const emp = me.employees.find(x=>x.id===empId);
+  const sub = await API('/api/my/submission?emp_id='+empId).then(r=>r.submission);
+  if (sub && sub.cells) emp.cells = sub.cells;
+  if (sub && sub.reviewed_cells) emp.reviewed_cells = sub.reviewed_cells;
+  const k = period+'_'+day;
+  const curColor = cellColor(emp, period, day-1);
+  const reviewed = (emp.reviewed_cells||{})[k] === 'green';
+  // 之前审批过的格子也可再修改（保持可追溯），不再硬阻断
+  // 弹窗选择：有凭证问题 / 没问题 / 申请修改符号
+  const isRed = curColor === 'r';
+  const html = `<div class="modal-bg" id="cellIssueModal">
+    <div class="modal" style="max-width:560px">
+      <h3>标记格子 · ${period==='am'?'上午':'下午'} ${day}日 · 当前符号：${currentSymbol||'（空）'}${reviewed?'<span class="badge b-green" style="margin-left:8px">已审批</span>':''}</h3>
+      <div class="small" style="color:#888;margin-bottom:8px">选择该格子的处理：</div>
+      <div style="display:flex;flex-direction:column;gap:8px;margin:10px 0">
+        <button class="green" onclick="cellIssueSetOk('${empId}','${period}',${day})">① 没问题（标绿）</button>
+        <button class="red" onclick="cellIssueSetProblem('${empId}','${period}',${day})">② 有问题（标红+上传凭证）</button>
+        <button onclick="openChangeRequestModal('${empId}','${period}',${day},'${(currentSymbol||'').replace(/'/g,"&#39;")}')">③ 申请修改考勤符号（需上传凭证，待管理员审批）</button>
+      </div>
+      ${isRed?'<div class="small" style="color:#888">当前已是"有问题"状态，点击"没问题"可改回绿色。</div>':''}
+      <div style="margin-top:14px;text-align:right"><button class="sec" onclick="document.getElementById('cellIssueModal').remove()">关闭</button></div>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+// 主管发起修改考勤符号申请
+function openChangeRequestModal(empId, period, day, currentSymbol){
+  document.getElementById('cellIssueModal')?.remove();
+  const legend = META?META.legend :[];
+  const optHtml = '<option value="">（清空）</option>'
+    + legend.map(l=>`<option value="${l.symbol}">${l.symbol} ${l.meaning}</option>`).join('')
+    + `<option value="__custom">自定义…</option>`;
+  const html = `<div class="modal-bg" id="changeReqModal">
+    <div class="modal" style="max-width:520px">
+      <h3>申请修改考勤符号 · ${period==='am'?'上午':'下午'} ${day}日</h3>
+      <div class="small" style="color:#888;margin-bottom:10px">
+        当前符号：<code style="background:#f0f0f0;padding:2px 6px;border-radius:3px">${currentSymbol || '（空）'}</code>
+        → 提交申请后由管理员审批，<b style="color:#c0392b">必须上传一张凭证照片</b>。
+      </div>
+      <label>新符号（管理员同意 → 自动改考勤）</label>
+      <select id="crNewSymbol" style="width:100%">${optHtml}</select>
+      <label style="margin-top:10px;display:block">修改理由（选填，给管理员看的说明）</label>
+      <textarea id="crReason" rows="2" style="width:100%" placeholder="如：8月5日下午请假已报，但总表漏记"></textarea>
+      <label style="margin-top:10px;display:block">凭证照片 <span style="color:#c0392b">*必填</span></label>
+      <input type="file" id="crFile" accept="image/*">
+      <div class="small" style="margin-top:6px;color:#888">凭证可让管理员了解变更原因，便于审批。</div>
+      <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">
+        <button class="sec" onclick="document.getElementById('changeReqModal').remove()">取消</button>
+        <button onclick="submitChangeRequest(${empId},'${period}',${day})">提交申请</button>
+      </div>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+async function submitChangeRequest(empId, period, day){
+  let v = document.getElementById('crNewSymbol').value;
+  if (v === '__custom') v = prompt('输入符号：', '') || '';
+  if (!v) { alert('请选择新符号'); return; }
+  const f = document.getElementById('crFile').files[0];
+  if (!f) { alert('必须上传一张凭证照片'); return; }
+  const b64 = await fileToB64(f);
+  const reason = document.getElementById('crReason').value.trim();
+  const r = await API('/api/my/change_request','POST',{
+    emp_id: empId, period, day, new_symbol: v, reason, filename: f.name, data: b64
+  });
+  if (r.error) { alert(r.error); return; }
+  document.getElementById('changeReqModal')?.remove();
+  await openDetail(empId);
+  await loadSupGrid();
+  alert('已提交修改申请（待管理员审批）。审批结果会同步显示在本详情和总表中。');
+}
+
+// 主管撤回待审申请
+async function cancelChangeRequest(empId, requestId){
+  if(!confirm('确认撤回该修改申请？撤回后该申请将被删除。')) return;
+  const r = await API('/api/my/change_request/cancel','POST',{emp_id:empId, request_id:requestId});
+  if (r.error) { alert(r.error); return; }
+  await openDetail(empId);
+  await loadSupGrid();
+}
+
+// 格子设为"没问题"（标绿）
+async function cellIssueSetOk(empId, period, day){
+  // 调用 partial 提交，只是不传这个格子
+  // 但需要先从当前 cells 移除该 red
+  const r = await API('/api/my/submission','POST',{
+    emp_id: empId, mode:'partial', note:'个别格子取消标记',
+    remove_cells: [{period, day}]
+  });
+  if(r.error){alert(r.error);return;}
+  document.getElementById('cellIssueModal')?.remove();
+  await openDetail(empId);
+  await loadSupGrid();
+}
+
+// 格子设为"有问题"（标红 + 上传凭证）
+async function cellIssueSetProblem(empId, period, day){
+  document.getElementById('cellIssueModal')?.remove();
+  // 弹凭证上传框
+  const html = `<div class="modal-bg" id="upEvModal">
+    <div class="modal" style="max-width:480px">
+      <h3>上传凭证 · ${period==='am'?'上午':'下午'} ${day}日</h3>
+      <div class="small" style="color:#888;margin-bottom:10px">选择一张凭证照片，证明该格子考勤情况：</div>
+      <input type="file" id="upCellFile" accept="image/*">
+      <div class="small" style="margin-top:6px;color:#888">凭证将与该格子绑定，管理员在审批时查看。</div>
+      <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">
+        <button class="sec" onclick="document.getElementById('upEvModal').remove()">取消</button>
+        <button class="red" onclick="uploadCellEvidence(${empId},'${period}',${day})">上传并标记为有问题</button>
+      </div>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+async function uploadCellEvidence(empId, period, day){
+  const f = document.getElementById('upCellFile').files[0];
+  if(!f){alert('请选择凭证照片');return;}
+  const b64 = await fileToB64(f);
+  const r = await API('/api/my/submission','POST',{
+    emp_id: empId, mode:'partial', note:'个别格子有问题',
+    problem_cells: [{period, day, filename:f.name, data:b64}]
+  });
+  if(r.error){alert(r.error);return;}
+  document.getElementById('upEvModal')?.remove();
+  await openDetail(empId);
+  await loadSupGrid();
+}
+
+// 整单提交：所有有数据的格子标绿
+async function submitDetailAllOk(empId){
+  if(!confirm('确认该员工所有考勤格子都无误？将把全部格子标记为绿色（可继续点"详情"撤销）。')) return;
+  const r = await API('/api/my/submission','POST',{
+    emp_id:empId, mode:'all_ok', note:'整单无误'
+  });
+  if(r.error){alert(r.error);return;}
+  await openDetail(empId);
+  await loadSupGrid();
+}
+
+// 部分提交：把当前打开详情时 cells 标记保留提交（如果用户在格子上做了标记，会先逐个调 /api/my/submission partial）
+// 这里简化：因为每次点格子已立即调接口保存，保存按钮其实只是刷新数据
+async function submitDetailPartial(empId){
+  alert('格子状态已实时保存，无需重复提交。');
+  await loadSupGrid();
+}
+
+function closeDetail(){
+  document.getElementById('detailModal').classList.add('hidden');
+}
+
+function viewImg(src){document.getElementById('imgBig').src=src;document.getElementById('imgModal').classList.remove('hidden');}
+function closeImg(){document.getElementById('imgModal').classList.add('hidden');}
+
+function supExport(){
+  const t=localStorage.getItem('tok');
+  fetch('/api/export',{headers:{'Authorization':'Bearer '+t}}).then(r=>{
+    const cd=r.headers.get('Content-Disposition')||'';
+    const m=cd.match(/filename\*=UTF-8''([^;]+)/);
+    const fname=m?decodeURIComponent(m[1]):'考勤总表_本区.xlsx';
+    return r.blob().then(b=>{const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=fname;a.click();});
+  });
+}
+
+boot();
+</script>
+</body>
+</html>

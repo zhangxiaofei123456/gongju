@@ -1,0 +1,21 @@
+# 运行时生成的数据（部署后由程序自动创建 / 不应进版本库）
+att.db
+att.db-journal
+__pycache__/
+*.pyc
+*.log
+server.log
+uploads/
+
+# 本地 / Windows 专用，云端不需要
+cloudflared
+cloudflared.exe
+*.bat
+
+# 开发 / 测试产物
+tests/
+test_*.py
+make_preview.py
+版式预览.html
+export_test.xlsx
+test_input.xlsx

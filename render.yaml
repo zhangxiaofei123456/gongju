@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: kaoqin-hedui
+    runtime: python
+    plan: free
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python app.py"
+    envVars:
+      - key: ADMIN_PASS
+        sync: false
